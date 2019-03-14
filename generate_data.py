@@ -28,7 +28,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_size', type=int, default=512)
     parser.add_argument('--N', type=int, default=10000)
-    parser.add_argument('--save_dir', type=str, default='mask')
+    parser.add_argument('--save_dir', type=str, default='masks')
     args = parser.parse_args()
 
     if not os.path.exists(args.save_dir):
@@ -42,4 +42,4 @@ if __name__ == '__main__':
         print("save:", i, np.sum(mask))
 
         img = Image.fromarray(mask * 255).convert('1')
-        img.save('{:s}/{:06d}.jpg'.format(args.save_dir, i))
+        img.save('{:s}/{:06d}.png'.format(args.save_dir, i))

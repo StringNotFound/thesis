@@ -123,7 +123,7 @@ class PCBActiv(nn.Module):
 
 
 class PConvUNet(nn.Module):
-    def __init__(self, layer_size=7, input_channels=3, upsampling_mode='nearest'):
+    def __init__(self, layer_size=6, input_channels=4, upsampling_mode='nearest'):
         super().__init__()
         self.freeze_enc_bn = False
         self.upsampling_mode = upsampling_mode
@@ -142,7 +142,7 @@ class PConvUNet(nn.Module):
         self.dec_4 = PCBActiv(512 + 256, 256, activ='leaky')
         self.dec_3 = PCBActiv(256 + 128, 128, activ='leaky')
         self.dec_2 = PCBActiv(128 + 64, 64, activ='leaky')
-        self.dec_1 = PCBActiv(64 + input_channels, input_channels,
+        self.dec_1 = PCBActiv(64 + input_channels, 1,
                               bn=False, activ=None, conv_bias=True)
 
     def forward(self, input, input_mask):

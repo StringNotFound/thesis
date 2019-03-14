@@ -1,5 +1,12 @@
 *.txt
+*.obj
 logs
 snapshots
 masks
 .idea
+1000000.pth
+
+hist
+__pycache__
+test
+train
