@@ -26,7 +26,7 @@ class Places2(torch.utils.data.Dataset):
             file_handler.close()
             #self.color_paths = glob(r'E:\test\**\col\*.png'.format(data_root), recursive=True)
 
-        self.mask_paths = glob(r'.\masks\*.png')
+        self.mask_paths = glob(r'E:\masks\*.png')
         self.N_mask = len(self.mask_paths)
         self.size = size
 
@@ -46,7 +46,11 @@ class Places2(torch.utils.data.Dataset):
         if np.max(depth_img) == 0:
             print("Found bad depth image at {}".format(depth_path))
             return self.__getitem__((index + 1) % self.__len__())
-        depth_img = depth_img / np.max(depth_img) * 255
+        try:
+            depth_img = depth_img / np.max(depth_img) * 255
+        except:
+            print(depth_path)
+            assert(False)
         (h, w) = depth_img.shape
         scaling_factor = h / float(self.size)
         depth_img = cv2.resize(depth_img, dsize=(int(w / scaling_factor), int(h / scaling_factor)), interpolation=cv2.INTER_CUBIC)
@@ -90,6 +94,8 @@ class Places2(torch.utils.data.Dataset):
         mask = Image.open(self.mask_paths[random.randint(0, self.N_mask - 1)])
         mask = self.mask_transform(mask.convert('L'))
         mask[mask > 0] = 1
+        # Black means masked out. For this mask dataset, we need to invert the masks
+        mask = 1 - mask
 
         #print(mask.size())
 

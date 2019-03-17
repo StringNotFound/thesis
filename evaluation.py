@@ -29,7 +29,7 @@ def evaluate(model, dataset, device, filename):
     with torch.no_grad():
         output, _ = model(rgbd_input.to(device), mask_input.to(device))
     output = output.to(torch.device('cpu'))
-    output_comp = mask * masked_depth + (1 - mask) * output
+    output_comp = mask * depth_gt + (1 - mask) * output
 
     grid = make_grid(
         torch.cat((color_img, mask.repeat(1, 3, 1, 1), output.repeat(1, 3, 1, 1), output_comp.repeat(1, 3, 1, 1), depth_gt.repeat(1, 3, 1, 1)), dim=0),

@@ -45,13 +45,13 @@ def main():
     parser.add_argument('--root', type=str, default='.')
     parser.add_argument('--save_dir', type=str, default='./snapshots/default')
     parser.add_argument('--log_dir', type=str, default='./logs/default')
-    parser.add_argument('--lr', type=float, default=2e-6)
+    parser.add_argument('--lr', type=float, default=2e-4)
     parser.add_argument('--lr_finetune', type=float, default=5e-5)
     parser.add_argument('--max_iter', type=int, default=1000000)
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--n_threads', type=int, default=16)
-    parser.add_argument('--save_model_interval', type=int, default=5000)
-    parser.add_argument('--vis_interval', type=int, default=5000)
+    parser.add_argument('--save_model_interval', type=int, default=1000)
+    parser.add_argument('--vis_interval', type=int, default=500)
     parser.add_argument('--log_interval', type=int, default=10)
     parser.add_argument('--image_size', type=int, default=256)
     parser.add_argument('--resume', type=str)
@@ -121,7 +121,7 @@ def main():
         loss_dict = criterion(masked_depth, mask, output, depth_gt)
 
         loss = 0.0
-        loss_params = {'hole': 1, 'valid': 1, 'tv': 0}
+        loss_params = {'hole': 1, 'valid': 1, 'tv': 0, 'ms-ssim': 1}
         for key, coef in loss_params.items():
             value = coef * loss_dict[key]
             loss += value
