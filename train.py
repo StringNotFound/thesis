@@ -121,7 +121,8 @@ def main():
         loss_dict = criterion(masked_depth, mask, output, depth_gt)
 
         loss = 0.0
-        loss_params = {'hole': 1, 'valid': 1, 'tv': 0, 'ms-ssim': 1}
+        #loss_params = {'hole': 1, 'valid': 1, 'tv': 0, 'ms-ssim': 1}
+        loss_params = {'l1': 0, 'tv': 0, 'ms-ssim': 0, 'charbonnier': 1}
         for key, coef in loss_params.items():
             value = coef * loss_dict[key]
             loss += value

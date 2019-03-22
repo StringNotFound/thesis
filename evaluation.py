@@ -6,6 +6,12 @@ import numpy as np
 from util.image import unnormalize
 
 
+def normalize01(t):
+    t = t - torch.min(t)
+    t = t / torch.max(t)
+    return t
+
+
 def evaluate(model, dataset, device, filename):
     masked_depth, mask, color_img, depth_gt = zip(*[dataset[i * 1000] for i in range(8)])
 
@@ -29,8 +35,9 @@ def evaluate(model, dataset, device, filename):
     with torch.no_grad():
         output, _ = model(rgbd_input.to(device), mask_input.to(device))
     output = output.to(torch.device('cpu'))
-    output_comp = mask * depth_gt + (1 - mask) * output
+    output_comp = mask * normalize01(depth_gt) + (1 - mask) * normalize01(output)
 
+    # there's a dimensionality problem, likely caused by unnormalize
     grid = make_grid(
         torch.cat((color_img, mask.repeat(1, 3, 1, 1), output.repeat(1, 3, 1, 1), output_comp.repeat(1, 3, 1, 1), depth_gt.repeat(1, 3, 1, 1)), dim=0),
         normalize=True, scale_each=True)
