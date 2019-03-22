@@ -29,25 +29,47 @@ def weights_init(init_type='gaussian'):
     return init_fun
 
 
-class VGG16FeatureExtractor(nn.Module):
-    def __init__(self):
+class RGBConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1, bias=True):
         super().__init__()
-        vgg16 = models.vgg16(pretrained=True)
-        self.enc_1 = nn.Sequential(*vgg16.features[:5])
-        self.enc_2 = nn.Sequential(*vgg16.features[5:10])
-        self.enc_3 = nn.Sequential(*vgg16.features[10:17])
+        self.input_conv = nn.Conv2d(in_channels, out_channels, kernel_size,
+                                    stride, padding, dilation, groups, bias)
+        self.input_conv.apply(weights_init('kaiming'))
 
-        # fix the encoder
-        for i in range(3):
-            for param in getattr(self, 'enc_{:d}'.format(i + 1)).parameters():
-                param.requires_grad = False
+        torch.nn.init.constant_(self.mask_conv.weight, 1.0)
 
-    def forward(self, image):
-        results = [image]
-        for i in range(3):
-            func = getattr(self, 'enc_{:d}'.format(i + 1))
-            results.append(func(results[-1]))
-        return results[1:]
+    def forward(self, input):
+        return self.input_conv(input)
+
+
+class RGBActiv(nn.Module):
+    def __init__(self, in_ch, out_ch, bn=True, sample='none-3', activ='relu',
+                 conv_bias=False):
+        super().__init__()
+        if sample == 'down-5':
+            self.conv = RGBConv(in_ch, out_ch, 5, 2, 2, bias=conv_bias)
+        elif sample == 'down-7':
+            self.conv = RGBConv(in_ch, out_ch, 7, 2, 3, bias=conv_bias)
+        elif sample == 'down-3':
+            self.conv = RGBConv(in_ch, out_ch, 3, 2, 1, bias=conv_bias)
+        else:
+            self.conv = RGBConv(in_ch, out_ch, 3, 1, 1, bias=conv_bias)
+
+        if bn:
+            self.bn = nn.BatchNorm2d(out_ch)
+        if activ == 'relu':
+            self.activation = nn.ReLU()
+        elif activ == 'leaky':
+            self.activation = nn.LeakyReLU(negative_slope=0.2)
+
+    def forward(self, input):
+        h = self.conv(input)
+        if hasattr(self, 'bn'):
+            h = self.bn(h)
+        if hasattr(self, 'activation'):
+            h = self.activation(h)
+        return h
 
 
 class PartialConv(nn.Module):
@@ -123,40 +145,56 @@ class PCBActiv(nn.Module):
 
 
 class PConvUNet(nn.Module):
-    def __init__(self, layer_size=6, input_channels=4, upsampling_mode='nearest'):
+    def __init__(self, layer_size=6, upsampling_mode='nearest'):
         super().__init__()
         self.freeze_enc_bn = False
         self.upsampling_mode = upsampling_mode
         self.layer_size = layer_size
-        self.enc_1 = PCBActiv(input_channels, 64, bn=False, sample='down-7')
-        self.enc_2 = PCBActiv(64, 128, sample='down-5')
-        self.enc_3 = PCBActiv(128, 256, sample='down-5')
-        self.enc_4 = PCBActiv(256, 512, sample='down-3')
-        for i in range(4, self.layer_size):
-            name = 'enc_{:d}'.format(i + 1)
-            setattr(self, name, PCBActiv(512, 512, sample='down-3'))
 
-        for i in range(4, self.layer_size):
-            name = 'dec_{:d}'.format(i + 1)
-            setattr(self, name, PCBActiv(512 + 512, 512, activ='leaky'))
-        self.dec_4 = PCBActiv(512 + 256, 256, activ='leaky')
-        self.dec_3 = PCBActiv(256 + 128, 128, activ='leaky')
-        self.dec_2 = PCBActiv(128 + 64, 64, activ='leaky')
-        self.dec_1 = PCBActiv(64 + input_channels, 1,
-                              bn=False, activ=None, conv_bias=True)
+        self.d_enc_1 = PCBActiv(1, 64, bn=False, sample='down-7')
+        self.rgb_enc_1 = RGBActiv(3, 64, bn=False, sample='down-7')
+        self.d_enc_2 = PCBActiv(128, 128, sample='down-5')
+        self.rgb_enc_2 = RGBActiv(64, 128, bn=False, sample='down-5')
+        self.d_enc_3 = PCBActiv(256, 256, sample='down-5')
+        self.rgb_enc_3 = RGBActiv(128, 256, bn=False, sample='down-5')
+        self.d_enc_4 = PCBActiv(512, 256, sample='down-3')
+        self.rgb_enc_4 = RGBActiv(256, 256, bn=False, sample='down-3')
 
-    def forward(self, input, input_mask):
-        h_dict = {}  # for the output of enc_N
-        h_mask_dict = {}  # for the output of enc_N
+        self.d_enc_5 = PCBActiv(512, 256, sample='down-3')
+        self.rgb_enc_5 = RGBActiv(256, 256, bn=False, sample='down-3')
+        self.d_enc_6 = PCBActiv(512, 256, sample='down-3')
+        self.rgb_enc_6 = RGBActiv(256, 256, bn=False, sample='down-3')
 
-        h_dict['h_0'], h_mask_dict['h_0'] = input, input_mask
+        self.d_dec_6 = PCBActiv(256 + 256, 256, activ='leaky')
+        self.rgb_dec_6 = RGBActiv(256, 256, activ='leaky')
+        self.d_dec_5 = PCBActiv(512 + 256, 256, activ='leaky')
+        self.rgb_dec_5 = RGBActiv(256 + 256, 256, activ='leaky')
+
+        self.d_dec_4 = PCBActiv(512 + 256, 256, activ='leaky')
+        self.rgb_dec_4 = RGBActiv(256 + 256, 256, activ='leaky')
+        self.d_dec_3 = PCBActiv(512 + 256, 256, activ='leaky')
+        self.rgb_dec_3 = RGBActiv(256 + 256, 128, activ='leaky')
+        self.d_dec_2 = PCBActiv(256 + 256, 128, activ='leaky')
+        self.rgb_dec_2 = RGBActiv(128 + 128, 64, activ='leaky')
+        self.d_dec_1 = PCBActiv(128 + 128, 1, bn=False, activ=None, conv_bias=True)
+
+    def forward(self, rgb, masked_depth, input_mask):
+        d_dict = {}  # for the output of enc_N
+        rgb_dict = {}  # for the output of enc_N
+        mask_dict = {}  # for the output of enc_N
+
+        d_dict['h_0'], rgb_dict['h_0'], mask_dict['h_0'] = rgb, masked_depth, input_mask
 
         h_key_prev = 'h_0'
         for i in range(1, self.layer_size + 1):
-            l_key = 'enc_{:d}'.format(i)
             h_key = 'h_{:d}'.format(i)
-            h_dict[h_key], h_mask_dict[h_key] = getattr(self, l_key)(
-                h_dict[h_key_prev], h_mask_dict[h_key_prev])
+            # first, run it through the rgb convolutional layer
+            l_key = 'rgb_enc_{:d}'.format(i)
+            rgb_dict[h_key] = getattr(self, l_key)(rgb_dict[h_key_prev])
+
+            l_key = 'd_enc_{:d}'.format(i)
+            d_dict[h_key], mask_dict[h_key] = getattr(self, l_key)(
+                torch.cat(h_dict[h_key_prev], h_mask_dict[h_key_prev])
             h_key_prev = h_key
 
         h_key = 'h_{:d}'.format(self.layer_size)
@@ -175,8 +213,8 @@ class PConvUNet(nn.Module):
             h_mask = F.interpolate(
                 h_mask, scale_factor=2, mode='nearest')
 
-            h = torch.cat([h, h_dict[enc_h_key]], dim=1)
-            h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key]], dim=1)
+            h = torch.cat((h, h_dict[enc_h_key]), dim=1)
+            h_mask = torch.cat((h_mask, h_mask_dict[enc_h_key]), dim=1)
             h, h_mask = getattr(self, dec_l_key)(h, h_mask)
 
         return h, h_mask
