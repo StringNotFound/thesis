@@ -151,7 +151,7 @@ class PConvUNet(nn.Module):
         self.upsampling_mode = upsampling_mode
         self.layer_size = layer_size
 
-        self.d_enc_1 = PCBActiv(1, 64, bn=False, sample='down-7')
+        self.d_enc_1 = PCBActiv(4, 64, bn=False, sample='down-7')
         self.rgb_enc_1 = RGBActiv(3, 64, bn=False, sample='down-7')
         self.d_enc_2 = PCBActiv(128, 128, sample='down-5')
         self.rgb_enc_2 = RGBActiv(64, 128, bn=False, sample='down-5')
@@ -162,62 +162,85 @@ class PConvUNet(nn.Module):
 
         self.d_enc_5 = PCBActiv(512, 256, sample='down-3')
         self.rgb_enc_5 = RGBActiv(256, 256, bn=False, sample='down-3')
+
         self.d_enc_6 = PCBActiv(512, 256, sample='down-3')
         self.rgb_enc_6 = RGBActiv(256, 256, bn=False, sample='down-3')
-
+        # takes in [rgb_enc_6, d_enc_6]
         self.d_dec_6 = PCBActiv(256 + 256, 256, activ='leaky')
+        # takes in [rgb_enc_6]
         self.rgb_dec_6 = RGBActiv(256, 256, activ='leaky')
-        self.d_dec_5 = PCBActiv(512 + 256, 256, activ='leaky')
+
+        # takes in [rgb_enc_5, d_enc_5, rgb_dec_6, d_dec_6]
+        self.d_dec_5 = PCBActiv(256 + 256 + 256 + 256, 256, activ='leaky')
+        # takes in [rgb_enc_5, rgb_dec_6]
         self.rgb_dec_5 = RGBActiv(256 + 256, 256, activ='leaky')
 
-        self.d_dec_4 = PCBActiv(512 + 256, 256, activ='leaky')
+        # takes in [rgb_enc_4, d_enc_4, rgb_dec_5, d_dec_5]
+        self.d_dec_4 = PCBActiv(256 + 256 + 256 + 256, 256, activ='leaky')
         self.rgb_dec_4 = RGBActiv(256 + 256, 256, activ='leaky')
-        self.d_dec_3 = PCBActiv(512 + 256, 256, activ='leaky')
-        self.rgb_dec_3 = RGBActiv(256 + 256, 128, activ='leaky')
-        self.d_dec_2 = PCBActiv(256 + 256, 128, activ='leaky')
-        self.rgb_dec_2 = RGBActiv(128 + 128, 64, activ='leaky')
-        self.d_dec_1 = PCBActiv(128 + 128, 1, bn=False, activ=None, conv_bias=True)
+
+        # takes in [rgb_enc_3, d_enc_3, rgb_dec_4, d_dec_4]
+        self.d_dec_3 = PCBActiv(256 + 256 + 256 + 256, 256, activ='leaky')
+        self.rgb_dec_3 = RGBActiv(256 + 256, 256, activ='leaky')
+
+        # takes in [rgb_enc_2, d_enc_2, rgb_dec_3, d_dec_3]
+        self.d_dec_2 = PCBActiv(128 + 128 + 256 + 256, 128, activ='leaky')
+        self.rgb_dec_2 = RGBActiv(128 + 128, 128, activ='leaky')
+
+        # takes in [rgb_enc_1, d_enc_1, rgb_dec_2, d_dec_2]
+        self.d_dec_1 = PCBActiv(64 + 64 + 128 + 128, 1, bn=False, activ=None, conv_bias=True)
+        # technically just a dummy set of weights
+        self.rgb_dec_1 = PCBActiv(64 + 128, 1, bn=False, activ=None, conv_bias=True)
 
     def forward(self, rgb, masked_depth, input_mask):
-        d_dict = {}  # for the output of enc_N
-        rgb_dict = {}  # for the output of enc_N
-        mask_dict = {}  # for the output of enc_N
+        d_dict = {}  # for the output of the depth layers
+        rgb_dict = {}  # for the output of the RGB layers
+        mask_dict = {}  # for the mask outputs of the depth layers
 
-        d_dict['h_0'], rgb_dict['h_0'], mask_dict['h_0'] = rgb, masked_depth, input_mask
+        d_dict['e_0'], rgb_dict['e_0'], mask_dict['e_0'] = rgb, masked_depth, input_mask
 
-        h_key_prev = 'h_0'
+        enc_key_prev = 'e_0'
         for i in range(1, self.layer_size + 1):
-            h_key = 'h_{:d}'.format(i)
+            enc_key = 'e_{:d}'.format(i)
             # first, run it through the rgb convolutional layer
             l_key = 'rgb_enc_{:d}'.format(i)
-            rgb_dict[h_key] = getattr(self, l_key)(rgb_dict[h_key_prev])
+            rgb_dict[enc_key] = getattr(self, l_key)(rgb_dict[enc_key_prev])
 
             l_key = 'd_enc_{:d}'.format(i)
-            d_dict[h_key], mask_dict[h_key] = getattr(self, l_key)(
-                torch.cat(h_dict[h_key_prev], h_mask_dict[h_key_prev])
-            h_key_prev = h_key
+            d_dict[enc_key], mask_dict[enc_key] = getattr(self, l_key)(
+                torch.cat((d_dict[enc_key_prev], rgb_dict[enc_key_prev]), 1),
+                mask_dict[enc_key_prev])
+            enc_key_prev = enc_key
 
-        h_key = 'h_{:d}'.format(self.layer_size)
-        h, h_mask = h_dict[h_key], h_mask_dict[h_key]
+        enc_key = 'e_{:d}'.format(self.layer_size)
+        h_rgb = getattr(self, 'rgb_dec_{:d}'.format(self.layer_size))(
+            rgb_dict[enc_key]
+        )
+        h_depth, h_mask = getattr(self, 'd_dec_{:d}'.format(self.layer_size))(
+            torch.cat((d_dict[enc_key], rgb_dict[enc_key]), 1),
+            mask_dict[enc_key]
+        )
 
-        # concat upsampled output of h_enc_N-1 and dec_N+1, then do dec_N
-        # (exception)
-        #                            input         dec_2            dec_1
-        #                            h_enc_7       h_enc_8          dec_8
+        for i in range(self.layer_size - 1, 0, -1):
+            enc_key = 'e_{:d}'.format(i)
 
-        for i in range(self.layer_size, 0, -1):
-            enc_h_key = 'h_{:d}'.format(i - 1)
-            dec_l_key = 'dec_{:d}'.format(i)
+            h_rgb = F.interpolate(h_rgb, scale_factor=2, mode=self.upsampling_mode)
+            h_depth = F.interpolate(h_depth, scale_factor=2, mode=self.upsampling_mode)
+            h_mask = F.interpolate(h_mask, scale_factor=2, mode='nearest')
 
-            h = F.interpolate(h, scale_factor=2, mode=self.upsampling_mode)
-            h_mask = F.interpolate(
-                h_mask, scale_factor=2, mode='nearest')
+            l_key = 'd_dec_{:d}'.format(i)
+            h_depth, h_mask = getattr(self, l_key)(
+                torch.cat((rgb_dict[enc_key],
+                           h_rgb,
+                           d_dict[enc_key],
+                           h_depth), 1),
+                torch.cat((h_mask, h_mask_dict[enc_key]), 1))
 
-            h = torch.cat((h, h_dict[enc_h_key]), dim=1)
-            h_mask = torch.cat((h_mask, h_mask_dict[enc_h_key]), dim=1)
-            h, h_mask = getattr(self, dec_l_key)(h, h_mask)
+            l_key = 'rgb_dec_{:d}'.format(i)
+            h_rgb = getattr(self, l_key)(
+                torch.cat((rgb_dict[enc_key], h_rgb), 1))
 
-        return h, h_mask
+        return h_depth, h_mask
 
     def train(self, mode=True):
         """
