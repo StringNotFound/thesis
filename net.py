@@ -37,8 +37,6 @@ class RGBConv(nn.Module):
                                     stride, padding, dilation, groups, bias)
         self.input_conv.apply(weights_init('kaiming'))
 
-        torch.nn.init.constant_(self.mask_conv.weight, 1.0)
-
     def forward(self, input):
         return self.input_conv(input)
 
@@ -81,6 +79,7 @@ class PartialConv(nn.Module):
         self.mask_conv = nn.Conv2d(in_channels, out_channels, kernel_size,
                                    stride, padding, dilation, groups, False)
         self.input_conv.apply(weights_init('kaiming'))
+        self.in_channels = in_channels
 
         torch.nn.init.constant_(self.mask_conv.weight, 1.0)
 
@@ -93,6 +92,12 @@ class PartialConv(nn.Module):
         # C(X) = W^T * X + b, C(0) = b, D(M) = 1 * M + 0 = sum(M)
         # W^T* (M .* X) / sum(M) + b = [C(M .* X) – C(0)] / D(M) + C(0)
 
+        #print("mask size: ", mask.size())
+        mask = mask[:, 1:2, :, :]
+        #print("mask size: ", mask.size())
+        mask = mask.repeat(1, self.in_channels, 1, 1)
+        #print("mask size: ", mask.size())
+        #print("input size: ", input.size())
         output = self.input_conv(input * mask)
         if self.input_conv.bias is not None:
             output_bias = self.input_conv.bias.view(1, -1, 1, 1).expand_as(
@@ -185,28 +190,37 @@ class PConvUNet(nn.Module):
 
         # takes in [rgb_enc_2, d_enc_2, rgb_dec_3, d_dec_3]
         self.d_dec_2 = PCBActiv(128 + 128 + 256 + 256, 128, activ='leaky')
-        self.rgb_dec_2 = RGBActiv(128 + 128, 128, activ='leaky')
+        self.rgb_dec_2 = RGBActiv(128 + 256, 128, activ='leaky')
 
         # takes in [rgb_enc_1, d_enc_1, rgb_dec_2, d_dec_2]
-        self.d_dec_1 = PCBActiv(64 + 64 + 128 + 128, 1, bn=False, activ=None, conv_bias=True)
+        self.d_dec_1 = PCBActiv(64 + 64 + 128 + 128, 64, bn=False, activ=None, conv_bias=True)
         # technically just a dummy set of weights
-        self.rgb_dec_1 = PCBActiv(64 + 128, 1, bn=False, activ=None, conv_bias=True)
+        self.rgb_dec_1 = RGBActiv(64 + 128, 64, bn=False, activ=None, conv_bias=True)
+
+        # takes in [rgb, masked_depth, rgb_dec_1, d_dec_1]
+        self.d_dec_0 = PCBActiv(64 + 64 + 4, 1, bn=False, activ=None, conv_bias=True)
 
     def forward(self, rgb, masked_depth, input_mask):
         d_dict = {}  # for the output of the depth layers
         rgb_dict = {}  # for the output of the RGB layers
         mask_dict = {}  # for the mask outputs of the depth layers
 
-        d_dict['e_0'], rgb_dict['e_0'], mask_dict['e_0'] = rgb, masked_depth, input_mask
+        rgb_dict['e_0'], d_dict['e_0'], mask_dict['e_0'] = rgb, masked_depth, input_mask
+
+        #print(rgb.size())
+        #print(masked_depth.size())
 
         enc_key_prev = 'e_0'
         for i in range(1, self.layer_size + 1):
             enc_key = 'e_{:d}'.format(i)
             # first, run it through the rgb convolutional layer
             l_key = 'rgb_enc_{:d}'.format(i)
+
+            #print("Giving layer {} input of size {}".format(l_key, rgb_dict[enc_key_prev].size()))
             rgb_dict[enc_key] = getattr(self, l_key)(rgb_dict[enc_key_prev])
 
             l_key = 'd_enc_{:d}'.format(i)
+            #print("Giving layer {} input of size {}".format(l_key, torch.cat((d_dict[enc_key_prev], rgb_dict[enc_key_prev]), 1).size()))
             d_dict[enc_key], mask_dict[enc_key] = getattr(self, l_key)(
                 torch.cat((d_dict[enc_key_prev], rgb_dict[enc_key_prev]), 1),
                 mask_dict[enc_key_prev])
@@ -229,17 +243,32 @@ class PConvUNet(nn.Module):
             h_mask = F.interpolate(h_mask, scale_factor=2, mode='nearest')
 
             l_key = 'd_dec_{:d}'.format(i)
+            #print("Giving layer {} input of size {}".format(l_key, torch.cat((rgb_dict[enc_key], h_rgb, d_dict[enc_key], h_depth), 1).size()))
             h_depth, h_mask = getattr(self, l_key)(
                 torch.cat((rgb_dict[enc_key],
                            h_rgb,
                            d_dict[enc_key],
                            h_depth), 1),
-                torch.cat((h_mask, h_mask_dict[enc_key]), 1))
+                torch.cat((h_mask, mask_dict[enc_key]), 1))
 
             l_key = 'rgb_dec_{:d}'.format(i)
+            #print("Giving layer {} input of size {}".format(l_key, torch.cat((rgb_dict[enc_key], h_rgb), 1).size()))
             h_rgb = getattr(self, l_key)(
                 torch.cat((rgb_dict[enc_key], h_rgb), 1))
 
+        h_rgb = F.interpolate(h_rgb, scale_factor=2, mode=self.upsampling_mode)
+        h_depth = F.interpolate(h_depth, scale_factor=2, mode=self.upsampling_mode)
+        h_mask = F.interpolate(h_mask, scale_factor=2, mode='nearest')
+
+        h_depth, h_mask = self.d_dec_0(
+            torch.cat((rgb,
+                       h_rgb,
+                       masked_depth,
+                       h_depth), 1),
+            h_mask
+        )
+
+        #print("done")
         return h_depth, h_mask
 
     def train(self, mode=True):

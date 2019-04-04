@@ -1,18 +1,11 @@
 import argparse
 import numpy as np
-import os
 import torch
-from tensorboardX import SummaryWriter
-from torch.utils import data
-from torchvision import transforms
-from tqdm import tqdm
 
 import opt
 from evaluation import evaluate
 from loss import DepthLoss
 from net import PConvUNet
-from net import VGG16FeatureExtractor
-from places2 import Places2
 from util.io import load_ckpt
 from util.io import save_ckpt
 from PIL import Image
@@ -104,9 +97,9 @@ def main():
     color_img = torch.unsqueeze(color_img, 0)
     depth_gt = torch.unsqueeze(depth_gt, 0)
 
-    rgbd_masked = torch.cat((color_img, masked_depth), 1)
+    #rgbd_masked = torch.cat((color_img, masked_depth), 1)
     with torch.no_grad():
-        output, _ = model(rgbd_masked, mask.repeat(1, 4, 1, 1))
+        output, _ = model(color_img, masked_depth, mask.repeat(1, 4, 1, 1))
     loss_dict = criterion(masked_depth, mask, output, depth_gt)
 
     loss = 0.0

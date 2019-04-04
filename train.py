@@ -11,7 +11,6 @@ import opt
 from evaluation import evaluate
 from loss import DepthLoss
 from net import PConvUNet
-from net import VGG16FeatureExtractor
 from places2 import Places2
 from util.io import load_ckpt
 from util.io import save_ckpt
@@ -45,13 +44,14 @@ def main():
     parser.add_argument('--root', type=str, default='.')
     parser.add_argument('--save_dir', type=str, default='./snapshots/default')
     parser.add_argument('--log_dir', type=str, default='./logs/default')
-    parser.add_argument('--lr', type=float, default=2e-4)
+    #parser.add_argument('--lr', type=float, default=2e-4)
+    parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--lr_finetune', type=float, default=5e-5)
     parser.add_argument('--max_iter', type=int, default=1000000)
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--n_threads', type=int, default=16)
     parser.add_argument('--save_model_interval', type=int, default=1000)
-    parser.add_argument('--vis_interval', type=int, default=500)
+    parser.add_argument('--vis_interval', type=int, default=1000)
     parser.add_argument('--log_interval', type=int, default=10)
     parser.add_argument('--image_size', type=int, default=256)
     parser.add_argument('--resume', type=str)
@@ -93,7 +93,7 @@ def main():
 
     if args.finetune:
         lr = args.lr_finetune
-        model.freeze_enc_bn = True
+        #model.freeze_enc_bn = True
     else:
         lr = args.lr
 
@@ -113,11 +113,11 @@ def main():
         model.train()
 
         masked_depth, mask, color_img, depth_gt = [x.to(device) for x in next(iterator_train)]
-        rgbd_masked = torch.cat((color_img, masked_depth), 1)
+        #rgbd_masked = torch.cat((color_img, masked_depth), 1)
         #print(rgbd_masked.size())
         #print(mask.size())
         #print(mask.repeat(1, 4, 1, 1).size())
-        output, _ = model(rgbd_masked, mask.repeat(1, 4, 1, 1))
+        output, _ = model(color_img, masked_depth, mask.repeat(1, 4, 1, 1))
         loss_dict = criterion(masked_depth, mask, output, depth_gt)
 
         loss = 0.0

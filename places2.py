@@ -50,7 +50,7 @@ class Places2(torch.utils.data.Dataset):
             depth_img = depth_img / np.max(depth_img) * 255
         except:
             print(depth_path)
-            assert(False)
+            return self.__getitem__((index + 1) % self.__len__())
         (h, w) = depth_img.shape
         scaling_factor = h / float(self.size)
         depth_img = cv2.resize(depth_img, dsize=(int(w / scaling_factor), int(h / scaling_factor)), interpolation=cv2.INTER_CUBIC)

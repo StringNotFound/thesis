@@ -27,13 +27,13 @@ def evaluate(model, dataset, device, filename):
     #print(color_img.size())
     #print(depth_gt.size())
 
-    rgbd_input = torch.cat((color_img, masked_depth), 1)
+    #rgbd_input = torch.cat((color_img, masked_depth), 1)
     # B X 1 X W X H
 
     mask_input = mask.repeat(1, 4, 1, 1)
 
     with torch.no_grad():
-        output, _ = model(rgbd_input.to(device), mask_input.to(device))
+        output, _ = model(color_img.to(device), masked_depth.to(device), mask_input.to(device))
     output = output.to(torch.device('cpu'))
     output_comp = mask * normalize01(depth_gt) + (1 - mask) * normalize01(output)
 
