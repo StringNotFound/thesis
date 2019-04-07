@@ -44,15 +44,29 @@ class DepthLoss(nn.Module):
         loss_dict = {}
         output_comp = mask * input + (1 - mask) * output
 
+        #with torch.no_grad():
+            #sobelConv = nn.Conv2d(1, 2, 3, bias=False)
+            #print(sobelConv.weight.data.size())
+            #sobelFilter = torch.tensor([[[-1, 0, 1],
+                                         #[-2, 0, 2],
+                                         #[-1, 0, 1]],
+                                        #[[-1, -2, -1],
+                                         #[0, 0, 0],
+                                         #[1, 2, 1]]], dtype=torch.float).to(torch.device('cuda'))
+            #sobelFilter = torch.unsqueeze(sobelFilter, 1)
+            #print(sobelFilter.size())
+            #sobelConv.weight.data = sobelFilter
+            #output_edges = sobelConv(output)
+            #gt_edges = sobelConv(gt)
+
+        #loss_dict['edges'] = self.l1(output_edges, gt_edges)
+
         #loss_dict['hole'] = self.l1((1 - mask) * output, (1 - mask) * gt)# / torch.sum((1-mask))
         #loss_dict['valid'] = self.l1(mask * output, mask * gt)# / torch.sum(mask)
 
         loss_dict['l1'] = self.l1(output, gt)
 
         loss_dict['tv'] = total_variation_loss(output_comp)
-
-        #print(torch.max(normalize01(output)))
-        #print(torch.min(normalize01(output)))
 
         msssim_loss = 1 - msssim(normalize01(output), normalize01(gt), normalize=True)
         #print(msssim_loss)

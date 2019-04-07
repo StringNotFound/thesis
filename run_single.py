@@ -82,7 +82,7 @@ def main():
     args = parser.parse_args()
 
     torch.backends.cudnn.benchmark = True
-    device = torch.device('cpu')
+    device = torch.device('cuda')
 
     model = PConvUNet().to(device)
     model.eval()
